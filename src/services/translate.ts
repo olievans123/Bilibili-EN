@@ -5,8 +5,11 @@ const TRANSLATE_CACHE = new Map<string, string>();
 const TRANSLATE_API = 'https://translate.googleapis.com';
 const TRANSLATE_PROXY = (import.meta.env.VITE_TRANSLATE_PROXY_BASE as string | undefined)?.replace(/\/$/, '')
   || '/api/translate';
-const isTauri = typeof window !== 'undefined'
-  && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+// Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
+function checkIsTauri(): boolean {
+  return typeof window !== 'undefined'
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 // Evict oldest entries when cache exceeds max size
 function cacheSet(key: string, value: string): void {
@@ -24,7 +27,7 @@ function cacheSet(key: string, value: string): void {
 async function translateFetch(url: string): Promise<Response> {
   const isDev = import.meta.env.DEV;
   const useProxy = isDev || Boolean(import.meta.env.VITE_TRANSLATE_PROXY_BASE);
-  const canUseWindowFetch = typeof window !== 'undefined' && !isTauri;
+  const canUseWindowFetch = typeof window !== 'undefined' && !checkIsTauri();
 
   if (useProxy || canUseWindowFetch) {
     const targetUrl = useProxy ? url.replace(TRANSLATE_API, TRANSLATE_PROXY) : url;

@@ -9,11 +9,15 @@ const AUTH_BASE = 'https://passport.bilibili.com';
 const AUTH_PROXY_BASE = (import.meta.env.VITE_PASSPORT_PROXY_BASE as string | undefined)?.replace(/\/$/, '')
   || '/api/passport';
 let store: Store | null = null;
-const isTauri = typeof window !== 'undefined'
-  && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+
+// Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
+function checkIsTauri(): boolean {
+  return typeof window !== 'undefined'
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 async function getStore(): Promise<Store> {
-  if (!isTauri) {
+  if (!checkIsTauri()) {
     throw new Error('Store not available');
   }
   if (!store) {
@@ -30,7 +34,7 @@ export interface QRCodeData {
 async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = `${AUTH_BASE}${path}`;
 
-  if (isTauri) {
+  if (checkIsTauri()) {
     return tauriFetch(url, options);
   }
 
@@ -171,7 +175,7 @@ function getStatusMessage(code: number): string {
 
 export async function saveCookies(cookies: string): Promise<void> {
   try {
-    if (!isTauri) {
+    if (!checkIsTauri()) {
       // Avoid persisting session cookies in web builds.
       window.localStorage.removeItem(LOCAL_STORAGE_KEY);
       return;
@@ -186,7 +190,7 @@ export async function saveCookies(cookies: string): Promise<void> {
 
 export async function loadSavedCookies(): Promise<string | null> {
   try {
-    if (!isTauri) {
+    if (!checkIsTauri()) {
       // Clear any legacy persisted cookies from older builds.
       window.localStorage.removeItem(LOCAL_STORAGE_KEY);
       return null;
@@ -206,7 +210,7 @@ export async function loadSavedCookies(): Promise<string | null> {
 
 export async function logout(): Promise<void> {
   try {
-    if (!isTauri) {
+    if (!checkIsTauri()) {
       window.localStorage.removeItem(LOCAL_STORAGE_KEY);
       setCookies('');
       return;

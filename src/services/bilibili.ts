@@ -16,8 +16,12 @@ const WWW_BASE = 'https://www.bilibili.com';
 const SPACE_BASE = 'https://space.bilibili.com';
 const PROXY_API_BASE = (import.meta.env.VITE_BILI_PROXY_BASE as string | undefined)?.replace(/\/$/, '')
   || '/api/bili'; // Vite proxy for dev mode or user-provided proxy base
-const isTauri = typeof window !== 'undefined'
-  && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+
+// Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
+function checkIsTauri(): boolean {
+  return typeof window !== 'undefined'
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 const WBI_CACHE_TTL = 60 * 60 * 1000;
 const WBI_MIXIN_KEY_MAP = [
@@ -44,7 +48,7 @@ async function apiFetch(url: string, options: RequestInit = {}): Promise<Respons
   const isDev = import.meta.env.DEV;
   const useProxy = isDev || Boolean(import.meta.env.VITE_BILI_PROXY_BASE);
 
-  if (isTauri) {
+  if (checkIsTauri()) {
     console.log('[API] Using Tauri fetch:', url);
     return tauriFetch(url, options);
   }
@@ -144,7 +148,7 @@ async function translateVideoDetails(videos: BiliVideo[]): Promise<void> {
 }
 
 function getHeaders(options?: { includeCookies?: boolean; includeBuvid?: boolean }): Record<string, string> {
-  const includeCookies = options?.includeCookies ?? isTauri;
+  const includeCookies = options?.includeCookies ?? checkIsTauri();
   const includeBuvid = options?.includeBuvid ?? true;
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
