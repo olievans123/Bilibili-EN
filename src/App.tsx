@@ -284,7 +284,7 @@ function App() {
   const pendingCountRef = useRef(0);
   const [initialLoad, setInitialLoad] = useState(true);
   const isTauri = typeof window !== 'undefined'
-    && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
   const hasApiProxy = Boolean(import.meta.env.DEV || import.meta.env.VITE_BILI_PROXY_BASE);
   const showProxyNotice = !isTauri && !hasApiProxy;
 

@@ -149,8 +149,11 @@ export async function downloadVideo(
   }
 }
 
-const isTauri = typeof window !== 'undefined'
-  && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+// Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
+function checkIsTauri(): boolean {
+  return typeof window !== 'undefined'
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 async function downloadWithProgress(
   url: string,
@@ -169,7 +172,7 @@ async function downloadWithProgress(
       },
       signal,
     };
-    const response = isTauri
+    const response = checkIsTauri()
       ? await tauriFetch(url, requestInit)
       : await window.fetch(url, requestInit);
 

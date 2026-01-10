@@ -16,7 +16,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
   const [qrRenderError, setQrRenderError] = useState<string | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
   const isTauri = typeof window !== 'undefined'
-    && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
   const fetchQRCode = useCallback(async () => {
     if (!isTauri) return;
