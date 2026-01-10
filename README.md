@@ -1,73 +1,80 @@
-# React + TypeScript + Vite
+# Bilibili EN
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A native desktop app for browsing Bilibili with automatic English translations. Designed for non-Chinese speakers who want to explore China's largest video platform without the language barrier.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+**Browsing**
+- Trending videos with English titles
+- Search in English (auto-translated to Chinese)
+- Category filtering (Gaming, Music, Anime, etc.)
+- Channel pages with video lists
 
-## React Compiler
+**Video Player**
+- Embedded Bilibili player
+- Comments with English translations
+- Related videos
+- Video downloads (desktop app only)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+**Personalization**
+- Watch history
+- Favorites
+- Custom playlists
+- Channel subscriptions
+- Dark mode
 
-## Expanding the ESLint configuration
+**Account**
+- QR code login with Bilibili mobile app
+- Access member-only content
+- Higher video quality with login
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Requirements
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**Desktop App (Recommended)**
+- macOS 13.0 or later
+- Apple Silicon (M1/M2/M3/M4) or Intel
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+**Web Version**
+- Any modern browser
+- Some features limited (no login, no downloads)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Installation
+
+### macOS
+1. Download the latest `.dmg` from [Releases](https://github.com/olievans123/bilibili-en/releases)
+2. Open the DMG and drag to Applications
+3. Right-click the app and select "Open" (first time only, to bypass Gatekeeper)
+
+### Build from Source
+```bash
+# Clone the repo
+git clone https://github.com/olievans123/bilibili-en.git
+cd bilibili-en
+
+# Install dependencies
+npm install
+
+# Run in development
+npm run dev
+
+# Build desktop app
+npm run tauri build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## How It Works
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Titles, descriptions, and comments are translated via Google Translate API
+- Search queries are translated from English to Chinese
+- Videos play through Bilibili's official embedded player
+- Login uses Bilibili's QR code authentication (desktop app only)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Tech Stack
+
+- **Frontend**: React + TypeScript + Vite
+- **Desktop**: Tauri 2.0
+- **Styling**: Tailwind CSS
+- **Translation**: Google Translate API
+
+## License
+
+MIT
