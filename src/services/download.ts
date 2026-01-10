@@ -203,7 +203,7 @@ async function downloadWithProgress(
       onProgress(Math.min(progress, 100), speed);
     }
 
-    return new Blob(chunks, { type: 'video/mp4' });
+    return new Blob(chunks as BlobPart[], { type: 'video/mp4' });
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
       console.log('Download cancelled');
