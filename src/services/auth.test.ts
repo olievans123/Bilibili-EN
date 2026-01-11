@@ -12,6 +12,7 @@ import {
 vi.mock('./bilibili', () => ({
   setCookies: vi.fn(),
   getCookies: vi.fn(() => ''),
+  getBuvidCookies: vi.fn(() => 'buvid3=test; buvid4=test'),
   getCurrentUser: vi.fn(() => Promise.resolve(null)),
 }))
 
