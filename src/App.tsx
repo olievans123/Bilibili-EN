@@ -227,7 +227,7 @@ function QuickCategories({ selected, onSelect }: { selected: number; onSelect: (
 }
 
 function App() {
-  const { user, logout, refreshAuth } = useAuth();
+  const { user, logout, refreshAuth, isLoggedIn } = useAuth();
   const {
     playlists,
     createPlaylist,
@@ -753,6 +753,7 @@ function App() {
           onProgress={(video, progress) => updateProgress(video.bvid, progress)}
           onFavorite={toggleFavorite}
           isFavorited={isFavorited(selectedVideo.bvid)}
+          isLoggedIn={isLoggedIn}
           onVideoChange={(video) => {
             setSelectedVideo(video);
             // Clear playlist context when switching via related videos

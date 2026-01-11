@@ -28,6 +28,7 @@ interface VideoPlayerProps {
   onProgress?: (video: BiliVideo, progress: number) => void;
   onFavorite?: (video: BiliVideo) => void;
   isFavorited?: boolean;
+  isLoggedIn?: boolean;
   onVideoChange?: (video: BiliVideo) => void;
   playlistContext?: PlaylistContext | null;
   onPlayNext?: () => void;
@@ -40,7 +41,7 @@ interface VideoPlayerProps {
 
 const COMMENTS_PAGE_SIZE = 20;
 
-export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, onWatched, onFavorite, isFavorited, onVideoChange, playlistContext, onPlayNext, translateTitles = true, translateDescriptions = true, translateComments = true, translateChannelNames = true }: VideoPlayerProps) {
+export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, onWatched, onFavorite, isFavorited, isLoggedIn = false, onVideoChange, playlistContext, onPlayNext, translateTitles = true, translateDescriptions = true, translateComments = true, translateChannelNames = true }: VideoPlayerProps) {
   const [comments, setComments] = useState<BiliComment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
   const [loadingMoreComments, setLoadingMoreComments] = useState(false);
@@ -55,6 +56,8 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
     && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
   const [showPlayerControls, setShowPlayerControls] = useState(false);
   const controlsHideTimerRef = useRef<number | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement | null>(null);
+  const domFullscreenActiveRef = useRef(false);
 
   // Download state
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
@@ -82,6 +85,7 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
   const displayTitle = translateTitles && video.titleEn ? video.titleEn : video.title;
   const displayChannelName = translateChannelNames && video.owner.nameEn ? video.owner.nameEn : video.owner.name;
   const displayDescription = translateDescriptions && descEn ? descEn : video.desc;
+  const loginNoteText = commentsRequireLogin ? 'Sign in to load more comments' : 'Sign in to see more comments';
 
   // Bilibili embed URL
   const embedUrl = `https://player.bilibili.com/player.html?bvid=${video.bvid}&autoplay=1&high_quality=1`;
@@ -113,6 +117,16 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
     scheduleControlsHide();
   }, [scheduleControlsHide]);
 
+  const isEventInsidePlayer = useCallback((event: MouseEvent) => {
+    const container = playerContainerRef.current;
+    if (!container) return false;
+    const rect = container.getBoundingClientRect();
+    return event.clientX >= rect.left
+      && event.clientX <= rect.right
+      && event.clientY >= rect.top
+      && event.clientY <= rect.bottom;
+  }, []);
+
   const handlePlayerPointerLeave = useCallback(() => {
     if (controlsHideTimerRef.current) {
       window.clearTimeout(controlsHideTimerRef.current);
@@ -121,11 +135,41 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
     setShowPlayerControls(false);
   }, []);
 
+  const requestDomFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    const container = playerContainerRef.current;
+    const fullscreenEnabled = document.fullscreenEnabled ?? true;
+    if (!container || !fullscreenEnabled || document.fullscreenElement) return;
+    try {
+      await container.requestFullscreen();
+    } catch (err) {
+      console.warn('Failed to request DOM fullscreen:', err);
+    }
+  }, []);
+
+  const exitDomFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    if (!document.fullscreenElement) return;
+    try {
+      await document.exitFullscreen();
+    } catch (err) {
+      console.warn('Failed to exit DOM fullscreen:', err);
+    }
+  }, []);
+
   const toggleVideoFullscreen = useCallback(() => {
-    setIsVideoFullscreen(prev => !prev);
+    if (isVideoFullscreen) {
+      setIsVideoFullscreen(false);
+      setShowPlayerControls(false);
+      void exitDomFullscreen();
+      return;
+    }
+    setIsVideoFullscreen(true);
     setShowPlayerControls(true);
     scheduleControlsHide();
-  }, [scheduleControlsHide]);
+    void requestDomFullscreen();
+    playerContainerRef.current?.focus({ preventScroll: true });
+  }, [isVideoFullscreen, scheduleControlsHide, requestDomFullscreen, exitDomFullscreen]);
 
   // Track video as watched
   useEffect(() => {
@@ -158,7 +202,7 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       switch (e.key) {
         case 'Escape':
           if (isVideoFullscreen) {
-            setIsVideoFullscreen(false);
+            toggleVideoFullscreen();
           } else if (showDownloadMenu) {
             setShowDownloadMenu(false);
           } else if (showShortcuts) {
@@ -208,6 +252,45 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isVideoFullscreen) return;
+    const handleGlobalMove = (event: MouseEvent) => {
+      if (isEventInsidePlayer(event)) {
+        handlePlayerPointerMove();
+      }
+    };
+    window.addEventListener('mousemove', handleGlobalMove);
+    window.addEventListener('mousedown', handleGlobalMove);
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMove);
+      window.removeEventListener('mousedown', handleGlobalMove);
+    };
+  }, [isVideoFullscreen, handlePlayerPointerMove, isEventInsidePlayer]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handleFullscreenChange = () => {
+      const isDomFullscreen = Boolean(document.fullscreenElement);
+      const wasDomFullscreen = domFullscreenActiveRef.current;
+      domFullscreenActiveRef.current = isDomFullscreen;
+      if (isDomFullscreen && !isVideoFullscreen) {
+        setIsVideoFullscreen(true);
+      } else if (wasDomFullscreen && !isDomFullscreen && isVideoFullscreen) {
+        setIsVideoFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [isVideoFullscreen]);
+
+  useEffect(() => {
+    if (!isVideoFullscreen) {
+      void exitDomFullscreen();
+    }
+  }, [isVideoFullscreen, exitDomFullscreen]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -611,7 +694,10 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
           minWidth: 0,
           maxWidth: isVideoFullscreen ? 'none' : '900px',
         }}>
-          <div style={{
+          <div
+          ref={playerContainerRef}
+          tabIndex={-1}
+          style={{
             width: '100%',
             background: '#000',
             overflow: 'hidden',
@@ -626,62 +712,81 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
           onMouseLeave={handlePlayerPointerLeave}
           >
             {isVideoFullscreen && (
-              <div style={{
-                position: 'absolute',
-                top: '12px',
-                left: '12px',
-                right: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                zIndex: 2,
-                opacity: showPlayerControls ? 1 : 0,
-                pointerEvents: showPlayerControls ? 'auto' : 'none',
-                transition: 'opacity 0.2s ease',
-              }}>
-                <button
-                  onClick={onClose}
+              <>
+                <div
+                  onMouseMove={handlePlayerPointerMove}
+                  onClick={handlePlayerPointerMove}
                   style={{
-                    background: 'rgba(0, 0, 0, 0.55)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '10px',
-                    padding: '8px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    color: '#fff',
-                    fontSize: '12px',
-                    fontWeight: 500,
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 1,
+                    pointerEvents: showPlayerControls ? 'none' : 'auto',
                   }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M19 12H5M12 19l-7-7 7-7" />
-                  </svg>
-                  Back
-                </button>
-                <button
-                  onClick={toggleVideoFullscreen}
-                  style={{
-                    background: 'rgba(0, 0, 0, 0.55)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '10px',
-                    padding: '8px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    color: '#fff',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                  </svg>
-                  Exit
-                </button>
-              </div>
+                />
+                <div style={{
+                  position: 'absolute',
+                  top: '12px',
+                  left: '12px',
+                  right: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  zIndex: 2,
+                  opacity: showPlayerControls ? 1 : 0,
+                  pointerEvents: showPlayerControls ? 'auto' : 'none',
+                  transition: 'opacity 0.2s ease',
+                }}>
+                  <button
+                    onClick={onClose}
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.55)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      padding: '8px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer',
+                      color: '#fff',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M19 12H5M12 19l-7-7 7-7" />
+                    </svg>
+                    Back
+                  </button>
+                  <button
+                    onClick={toggleVideoFullscreen}
+                    aria-label="Exit fullscreen"
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.55)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '999px',
+                      width: '32px',
+                      height: '32px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: '#fff',
+                      transition: 'opacity 0.2s ease, background 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(0, 0, 0, 0.75)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)';
+                    }}
+                    title="Exit fullscreen (Esc)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 4H4v5M4 4l6 6M15 20h5v-5M20 20l-6-6M20 9V4h-5M20 4l-6 6M4 15v5h5M4 20l6-6" />
+                    </svg>
+                  </button>
+                </div>
+              </>
             )}
             <iframe
               src={embedUrl}
@@ -1199,8 +1304,8 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                     </button>
                   )}
 
-                  {/* Login required note */}
-                  {commentsRequireLogin && commentsTotal > comments.length && (
+                  {/* Login note */}
+                  {!isLoggedIn && (
                     <p style={{
                       marginTop: '12px',
                       padding: '8px 12px',
@@ -1209,7 +1314,7 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                       textAlign: 'center',
                       fontStyle: 'italic',
                     }}>
-                      Log in to load more comments
+                      {loginNoteText}
                     </p>
                   )}
                 </div>
