@@ -5,7 +5,7 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
-export function SearchBar({ onSearch, placeholder = 'Search in English...' }: SearchBarProps) {
+export function SearchBar({ onSearch, placeholder = 'Search in English or Chinese...' }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
 

@@ -542,6 +542,10 @@ export interface SearchFilters {
   duration?: 0 | 1 | 2 | 3 | 4; // 0=all, 1=<10min, 2=10-30, 3=30-60, 4=>60
 }
 
+function hasCjkCharacters(value: string): boolean {
+  return /[\u4E00-\u9FFF]/.test(value);
+}
+
 export async function searchVideos(
   query: string,
   page: number = 1,
@@ -550,7 +554,8 @@ export async function searchVideos(
 ): Promise<BiliSearchResult> {
   try {
     // Translate English query to Chinese
-    const searchQuery = translateQuery ? await translateToChinese(query) : query;
+    const shouldTranslate = translateQuery && !hasCjkCharacters(query);
+    const searchQuery = shouldTranslate ? await translateToChinese(query) : query;
 
     // Build URL with optional filters
     let url = `${API_BASE}/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(searchQuery)}&page=${page}&page_size=20`;
