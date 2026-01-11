@@ -27,39 +27,9 @@ export function VideoGrid({ videos, loading, onVideoSelect, onChannelSelect, onF
     );
   }
 
+  // Let parent component handle empty state
   if (videos.length === 0) {
-    return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '80px 20px',
-        textAlign: 'center',
-      }}>
-        <div style={{
-          width: '80px',
-          height: '80px',
-          borderRadius: '50%',
-          background: 'rgba(255, 255, 255, 0.05)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: '20px',
-        }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m10 9 5 3-5 3V9z" />
-          </svg>
-        </div>
-        <p style={{ fontSize: '18px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>
-          No videos found
-        </p>
-        <p style={{ fontSize: '14px', color: '#666' }}>
-          Try a different search or category
-        </p>
-      </div>
-    );
+    return null;
   }
 
   return (

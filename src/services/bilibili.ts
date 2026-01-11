@@ -16,6 +16,11 @@ const WWW_BASE = 'https://www.bilibili.com';
 const SPACE_BASE = 'https://space.bilibili.com';
 const PROXY_API_BASE = (import.meta.env.VITE_BILI_PROXY_BASE as string | undefined)?.replace(/\/$/, '')
   || '/api/bili'; // Vite proxy for dev mode or user-provided proxy base
+const BVID_TABLE = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF';
+const BVID_POSITIONS = [11, 10, 3, 8, 4, 6];
+const BVID_XOR = 177451812n;
+const BVID_ADD = 8728348608n;
+const aidCache = new Map<string, number>();
 
 // Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
 function checkIsTauri(): boolean {
@@ -50,7 +55,23 @@ async function apiFetch(url: string, options: RequestInit = {}): Promise<Respons
 
   if (checkIsTauri()) {
     console.log('[API] Using Tauri fetch:', url);
-    return tauriFetch(url, options);
+    try {
+      const response = await tauriFetch(url, options);
+      console.log('[API] Tauri fetch success:', response.status, response.statusText);
+      return response;
+    } catch (error) {
+      console.error('[API] Tauri fetch error:', error);
+      // Store error for debugging
+      if (typeof window !== 'undefined') {
+        (window as unknown as Record<string, unknown>).lastTauriFetchError = {
+          url,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date().toISOString(),
+        };
+      }
+      throw error;
+    }
   }
 
   if (useProxy) {
@@ -92,7 +113,7 @@ function generateBuvid(): string {
 // Cache buvid cookies for the session
 let buvidCookies: string | null = null;
 
-function getBuvidCookies(): string {
+export function getBuvidCookies(): string {
   if (!buvidCookies) {
     const buvid3 = generateBuvid();
     const buvid4 = generateBuvid();
@@ -153,7 +174,15 @@ function getHeaders(options?: { includeCookies?: boolean; includeBuvid?: boolean
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Referer': 'https://www.bilibili.com',
+    'Origin': 'https://www.bilibili.com',
     'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"macOS"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
   };
 
   // Build cookie string - include buvid for anonymous API access
@@ -357,41 +386,53 @@ declare global {
   }
 }
 
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
+// Always expose debug info (needed for troubleshooting in production)
+if (typeof window !== 'undefined') {
   window.biliDebug = {};
 
-  // Test function to verify HTTP plugin works (dev only)
+  // Test function to verify HTTP plugin works
   (window as unknown as Record<string, unknown>).testFetch = async () => {
+    const results: Record<string, unknown> = {
+      isTauri: checkIsTauri(),
+      hasTauriInternals: !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
+    };
+
     try {
       console.log('[Test] Starting test fetch...');
-      // Try Tauri fetch first
-      try {
-        const response = await tauriFetch('https://api.bilibili.com/x/web-interface/popular?ps=1&pn=1', {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-            'Referer': 'https://www.bilibili.com',
-          }
-        });
-        console.log('[Test] Tauri fetch status:', response.status);
-        const text = await response.text();
-        console.log('[Test] Response length:', text.length);
-        console.log('[Test] Response preview:', text.substring(0, 300));
-        return { method: 'tauri', success: true, status: response.status, length: text.length, preview: text.substring(0, 300) };
-      } catch (tauriErr) {
-        console.log('[Test] Tauri fetch failed:', tauriErr);
+      console.log('[Test] isTauri:', results.isTauri);
+
+      if (checkIsTauri()) {
+        // Try Tauri fetch with full browser headers
+        try {
+          console.log('[Test] Attempting Tauri fetch...');
+          const headers = getHeaders({ includeCookies: true, includeBuvid: true });
+          console.log('[Test] Headers:', JSON.stringify(headers));
+          const response = await tauriFetch('https://api.bilibili.com/x/web-interface/popular?ps=1&pn=1', {
+            method: 'GET',
+            headers,
+          });
+          console.log('[Test] Tauri fetch status:', response.status);
+          const text = await response.text();
+          console.log('[Test] Response length:', text.length);
+          console.log('[Test] Response preview:', text.substring(0, 300));
+          return { ...results, method: 'tauri', success: true, status: response.status, length: text.length, preview: text.substring(0, 300), headers };
+        } catch (tauriErr) {
+          console.error('[Test] Tauri fetch failed:', tauriErr);
+          return { ...results, method: 'tauri', success: false, error: tauriErr instanceof Error ? tauriErr.message : String(tauriErr) };
+        }
       }
 
-      // Try proxy fetch
+      // Try proxy fetch (for dev/browser)
+      console.log('[Test] Attempting proxy fetch...');
       const response = await window.fetch('/api/bili/x/web-interface/popular?ps=1&pn=1');
       console.log('[Test] Proxy fetch status:', response.status);
       const text = await response.text();
       console.log('[Test] Response length:', text.length);
       console.log('[Test] Response preview:', text.substring(0, 300));
-      return { method: 'proxy', success: true, status: response.status, length: text.length, preview: text.substring(0, 300) };
+      return { ...results, method: 'proxy', success: true, status: response.status, length: text.length, preview: text.substring(0, 300) };
     } catch (error) {
       console.error('[Test] Error:', error);
-      return { success: false, error: String(error) };
+      return { ...results, success: false, error: String(error) };
     }
   };
 }
@@ -462,7 +503,7 @@ export async function getTrending(pageNum: number = 1): Promise<BiliTrendingResu
 
     const videos: BiliVideo[] = data.data.list.map((item: Record<string, unknown>) => ({
       bvid: item.bvid as string,
-      aid: item.aid as number,
+      aid: Number(item.aid) || 0,
       title: item.title as string,
       desc: item.desc as string,
       pic: normalizeImageUrl(item.pic),
@@ -491,7 +532,7 @@ export async function getTrending(pageNum: number = 1): Promise<BiliTrendingResu
   } catch (error) {
     const errorMsg = `Error fetching trending: ${error instanceof Error ? error.message : String(error)}`;
     console.error('[Bilibili]', errorMsg, error);
-    if (import.meta.env.DEV && window.biliDebug) window.biliDebug.lastError = errorMsg;
+    if (window.biliDebug) window.biliDebug.lastError = errorMsg;
     return { videos: [], error: errorMsg };
   }
 }
@@ -534,7 +575,7 @@ export async function searchVideos(
 
     const videos: BiliVideo[] = results.map((item: Record<string, unknown>) => ({
       bvid: item.bvid as string,
-      aid: item.aid as number,
+      aid: Number(item.aid) || 0,
       title: (item.title as string).replace(/<[^>]*>/g, ''), // Remove HTML tags from search results
       desc: item.description as string || '',
       pic: normalizeImageUrl(item.pic),
@@ -665,7 +706,7 @@ export async function getVideosByCategory(
       const list = Array.isArray(data.data?.list) ? data.data.list : [];
       const videos: BiliVideo[] = list.map((item: Record<string, unknown>) => ({
         bvid: item.bvid as string,
-        aid: item.aid as number,
+        aid: Number(item.aid) || 0,
         title: item.title as string,
         desc: item.desc as string || item.description as string || '',
         pic: item.pic as string,
@@ -808,8 +849,28 @@ function parseDuration(duration: string | number): number {
   return 0;
 }
 
+function decodeAidFromBvid(bvid: string): number | null {
+  if (!bvid || !bvid.startsWith('BV') || bvid.length < 12) return null;
+  let r = 0n;
+  for (let i = 0; i < BVID_POSITIONS.length; i += 1) {
+    const index = BVID_TABLE.indexOf(bvid[BVID_POSITIONS[i]]);
+    if (index < 0) return null;
+    r += BigInt(index) * (58n ** BigInt(i));
+  }
+  const aid = (r - BVID_ADD) ^ BVID_XOR;
+  if (aid <= 0n) return null;
+  const asNumber = Number(aid);
+  if (!Number.isSafeInteger(asNumber)) return null;
+  return asNumber;
+}
+
 // Get aid from bvid
 export async function getAidFromBvid(bvid: string): Promise<number | null> {
+  const cached = aidCache.get(bvid);
+  if (cached) {
+    return cached;
+  }
+  const decoded = decodeAidFromBvid(bvid);
   try {
     console.log('[getAidFromBvid] Fetching aid for bvid:', bvid);
     const url = `${API_BASE}/x/web-interface/view?bvid=${bvid}`;
@@ -817,12 +878,26 @@ export async function getAidFromBvid(bvid: string): Promise<number | null> {
     const data = await response.json();
     console.log('[getAidFromBvid] Response code:', data.code, 'aid:', data.data?.aid);
     if (data.code === 0 && data.data?.aid) {
-      return data.data.aid as number;
+      const aid = Number(data.data.aid);
+      if (Number.isSafeInteger(aid) && aid > 0) {
+        aidCache.set(bvid, aid);
+        return aid;
+      }
     }
     console.error('[getAidFromBvid] Failed to get aid:', data.message || 'No aid in response');
+    if (decoded) {
+      console.warn('[getAidFromBvid] Falling back to decoded aid:', decoded);
+      aidCache.set(bvid, decoded);
+      return decoded;
+    }
     return null;
   } catch (err) {
     console.error('[getAidFromBvid] Error:', err);
+    if (decoded) {
+      console.warn('[getAidFromBvid] Falling back to decoded aid:', decoded);
+      aidCache.set(bvid, decoded);
+      return decoded;
+    }
     return null;
   }
 }
@@ -834,20 +909,26 @@ export async function getVideoComments(
   bvid?: string
 ): Promise<BiliCommentsResult> {
   // If aid is 0 or missing, try to get it from bvid
-  let effectiveAid = aid;
-  if (!effectiveAid && bvid) {
-    console.log('[Comments] aid is 0, fetching from bvid:', bvid);
+  let effectiveAid = Number(aid);
+  if (!Number.isFinite(effectiveAid) || effectiveAid <= 0) {
+    effectiveAid = 0;
+  }
+  if (bvid) {
     const fetchedAid = await getAidFromBvid(bvid);
     if (fetchedAid) {
+      if (effectiveAid && effectiveAid !== fetchedAid) {
+        console.log('[Comments] aid mismatch, using bvid-derived aid:', fetchedAid, 'was:', effectiveAid);
+      }
       effectiveAid = fetchedAid;
-      console.log('[Comments] Got aid from bvid:', effectiveAid);
+      console.log('[Comments] Using aid from bvid:', effectiveAid);
     }
   }
 
-  // Calculate page number (cursor is treated as page offset: 0, 20, 40, ...)
-  const pageNum = Math.floor(cursor / pageSize) + 1;
+  // Calculate page number (cursor is treated as page index: 0, 1, 2, ...)
+  const pageCursor = Number.isFinite(cursor) && cursor > 0 ? Math.floor(cursor) : 0;
+  const pageNum = pageCursor + 1;
   const isFirstPage = pageNum === 1;
-  console.log('[Comments] Fetching page:', pageNum, 'cursor:', cursor, 'aid:', effectiveAid);
+  console.log('[Comments] Fetching page:', pageNum, 'cursor:', pageCursor, 'aid:', effectiveAid);
 
   if (!effectiveAid) {
     console.error('[Comments] No valid aid available, cannot fetch comments');
@@ -855,27 +936,92 @@ export async function getVideoComments(
   }
 
   try {
-    // Use page-based API
-    const url = `${API_BASE}/x/v2/reply?oid=${effectiveAid}&type=1&pn=${pageNum}&ps=${pageSize}&sort=0`;
-    console.log('[Comments] Fetching:', url.replace(API_BASE, ''));
+    const offset = pageCursor * pageSize;
+    const paginationStr = JSON.stringify({ offset: offset === 0 ? '' : String(offset) });
+    const wbiUrl = await buildWbiUrl('/x/v2/reply/wbi/main', {
+      oid: effectiveAid,
+      type: 1,
+      mode: 3,
+      pagination_str: paginationStr,
+      ps: pageSize,
+      plat: 1,
+      web_location: 1315875,
+    });
+    const mainUrl = `${API_BASE}/x/v2/reply/main?oid=${effectiveAid}&type=1&mode=3&next=${pageCursor}&ps=${pageSize}&plat=1&web_location=1315875`;
+    const legacyUrl = `${API_BASE}/x/v2/reply?oid=${effectiveAid}&type=1&pn=${pageNum}&ps=${pageSize}&sort=0`;
 
-    const response = await apiFetch(url, { headers: getHeaders() });
-    const data = await response.json();
-    console.log('[Comments] Response code:', data?.code, 'message:', data?.message);
+    const urlsToTry = [
+      ...(wbiUrl ? [{ url: wbiUrl, label: 'wbi' as const }] : []),
+      { url: mainUrl, label: 'main' as const },
+      { url: legacyUrl, label: 'legacy' as const },
+    ];
 
-    if (data?.code !== 0) {
-      console.warn('[Comments] API error:', data?.message);
-      return { comments: [], total: 0, page: pageNum, pageSize, hasMore: false };
+    let data: Record<string, unknown> | null = null;
+    let lastError: string | undefined;
+
+    for (const { url, label } of urlsToTry) {
+      console.log('[Comments] Fetching', label, 'endpoint:', url.replace(API_BASE, ''));
+      const response = await apiFetch(url, { headers: getHeaders() });
+
+      if (!response.ok) {
+        console.error('[Comments] HTTP error:', response.status, response.statusText);
+        lastError = `HTTP ${response.status}`;
+        continue;
+      }
+
+      const text = await response.text();
+      if (text.startsWith('<!') || text.startsWith('<html')) {
+        console.error('[Comments] Got HTML instead of JSON (likely 403 block):', text.substring(0, 200));
+        lastError = 'API returned HTML (blocked)';
+        continue;
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(text) as Record<string, unknown>;
+      } catch (parseErr) {
+        console.error('[Comments] JSON parse error:', parseErr, 'Response:', text.substring(0, 200));
+        lastError = 'Invalid JSON response';
+        continue;
+      }
+
+      console.log('[Comments] Response code:', parsed?.code, 'message:', parsed?.message);
+
+      if (parsed?.code !== 0) {
+        console.warn('[Comments] API error:', parsed?.message);
+        lastError = String(parsed?.message || 'API error');
+        continue;
+      }
+
+      data = parsed;
+      break;
+    }
+
+    if (!data) {
+      return { comments: [], total: 0, page: pageNum, pageSize, hasMore: false, error: lastError || 'Failed to load comments' };
     }
 
     const dataPayload = data.data as Record<string, unknown> | undefined;
-    const repliesArr = dataPayload?.replies as unknown[] | undefined;
-    const topRepliesArr = dataPayload?.top_replies as unknown[] | undefined;
-    const pageInfo = dataPayload?.page as Record<string, unknown> | undefined;
+    const replyContainer = dataPayload?.reply as Record<string, unknown> | undefined;
+    const repliesArr = Array.isArray(dataPayload?.replies)
+      ? dataPayload?.replies as unknown[]
+      : Array.isArray(replyContainer?.replies)
+        ? replyContainer?.replies as unknown[]
+        : [];
+    const topRepliesArr = isFirstPage && Array.isArray(dataPayload?.top_replies)
+      ? dataPayload?.top_replies as unknown[]
+      : isFirstPage && Array.isArray(dataPayload?.top)
+        ? dataPayload?.top as unknown[]
+        : [];
+    const pageInfo = (dataPayload?.page || replyContainer?.page) as Record<string, unknown> | undefined;
+    const cursorInfo = dataPayload?.cursor as Record<string, unknown> | undefined;
+    const paginationInfo = cursorInfo?.pagination_reply as Record<string, unknown> | undefined;
 
     // Get total count
     const apiTotal = typeof pageInfo?.count === 'number' ? pageInfo.count :
-                     typeof pageInfo?.acount === 'number' ? pageInfo.acount : 0;
+                     typeof pageInfo?.acount === 'number' ? pageInfo.acount :
+                     typeof cursorInfo?.all_count === 'number' ? cursorInfo?.all_count :
+                     typeof cursorInfo?.count === 'number' ? cursorInfo?.count : 0;
 
     console.log('[Comments] replies:', Array.isArray(repliesArr) ? repliesArr.length : 'null',
                 'top_replies:', Array.isArray(topRepliesArr) ? topRepliesArr.length : 'null',
@@ -884,13 +1030,15 @@ export async function getVideoComments(
     // Get replies arrays
     const regularReplies = Array.isArray(repliesArr) ? repliesArr as Record<string, unknown>[] : [];
     // Include top_replies only on the first page
-    const topReplies = isFirstPage && Array.isArray(topRepliesArr) ? topRepliesArr as Record<string, unknown>[] : [];
+    const topReplies = Array.isArray(topRepliesArr) ? topRepliesArr as Record<string, unknown>[] : [];
     const replies = [...topReplies, ...regularReplies];
 
     // Check if login is required for more comments
     // If API says there are more comments but we got empty replies, login is needed
     const totalPages = apiTotal > 0 ? Math.ceil(apiTotal / pageSize) : 0;
-    const shouldHaveMore = pageNum < totalPages;
+    const cursorIsEnd = cursorInfo?.is_end;
+    const cursorHasMore = typeof cursorIsEnd === 'boolean' ? !cursorIsEnd : undefined;
+    const shouldHaveMore = typeof cursorHasMore === 'boolean' ? cursorHasMore : pageNum < totalPages;
     const requiresLogin = shouldHaveMore && regularReplies.length === 0 && !isFirstPage;
 
     if (requiresLogin) {
@@ -912,8 +1060,28 @@ export async function getVideoComments(
     }
 
     // Calculate pagination
-    const hasMore = regularReplies.length > 0 && pageNum < totalPages;
-    const nextCursor = hasMore ? pageNum * pageSize : undefined;
+    const hasMore = typeof cursorHasMore === 'boolean'
+      ? cursorHasMore
+      : regularReplies.length > 0 && pageNum < totalPages;
+    let nextCursor: number | undefined;
+    if (hasMore) {
+      const nextOffsetRaw = paginationInfo?.next_offset;
+      if (typeof nextOffsetRaw === 'string') {
+        const parsed = Number.parseInt(nextOffsetRaw, 10);
+        if (Number.isFinite(parsed)) {
+          nextCursor = Math.floor(parsed / pageSize);
+        }
+      }
+      if (nextCursor === undefined) {
+        const cursorNext = cursorInfo?.next;
+        if (typeof cursorNext === 'number') {
+          nextCursor = cursorNext;
+        }
+      }
+      if (nextCursor === undefined) {
+        nextCursor = pageCursor + 1;
+      }
+    }
     console.log('[Comments] Page:', pageNum, '/', totalPages, 'hasMore:', hasMore, 'requiresLogin:', requiresLogin);
 
     return {
@@ -1223,7 +1391,7 @@ async function getChannelVideosViaSearch(
 
     const videos: BiliVideo[] = results.map((item: Record<string, unknown>) => ({
       bvid: item.bvid as string,
-      aid: item.aid as number,
+      aid: Number(item.aid) || 0,
       title: (item.title as string).replace(/<[^>]*>/g, ''),
       desc: (item.description as string) || '',
       pic: normalizeImageUrl(item.pic),

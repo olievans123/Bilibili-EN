@@ -50,6 +50,11 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
   const [nextCursor, setNextCursor] = useState<number | undefined>(undefined);
   const [commentsRequireLogin, setCommentsRequireLogin] = useState(false);
   const latestAidRef = useRef<number | null>(null);
+  const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
+  const isTauri = typeof window !== 'undefined'
+    && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+  const [showPlayerControls, setShowPlayerControls] = useState(false);
+  const controlsHideTimerRef = useRef<number | null>(null);
 
   // Download state
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
@@ -93,6 +98,35 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
     }
   }, [video.bvid]);
 
+  const scheduleControlsHide = useCallback(() => {
+    if (controlsHideTimerRef.current) {
+      window.clearTimeout(controlsHideTimerRef.current);
+    }
+    controlsHideTimerRef.current = window.setTimeout(() => {
+      setShowPlayerControls(false);
+      controlsHideTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  const handlePlayerPointerMove = useCallback(() => {
+    setShowPlayerControls(true);
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
+
+  const handlePlayerPointerLeave = useCallback(() => {
+    if (controlsHideTimerRef.current) {
+      window.clearTimeout(controlsHideTimerRef.current);
+      controlsHideTimerRef.current = null;
+    }
+    setShowPlayerControls(false);
+  }, []);
+
+  const toggleVideoFullscreen = useCallback(() => {
+    setIsVideoFullscreen(prev => !prev);
+    setShowPlayerControls(true);
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
+
   // Track video as watched
   useEffect(() => {
     onWatched?.(video);
@@ -123,7 +157,9 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
 
       switch (e.key) {
         case 'Escape':
-          if (showDownloadMenu) {
+          if (isVideoFullscreen) {
+            setIsVideoFullscreen(false);
+          } else if (showDownloadMenu) {
             setShowDownloadMenu(false);
           } else if (showShortcuts) {
             setShowShortcuts(false);
@@ -146,11 +182,15 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
             onAddToPlaylist(video);
           }
           break;
+        case 'f':
+        case 'F':
+          toggleVideoFullscreen();
+          break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onAddToPlaylist, video, qualities.length, downloadProgress, showDownloadMenu, showShortcuts]);
+  }, [onClose, onAddToPlaylist, video, qualities.length, downloadProgress, showDownloadMenu, showShortcuts, toggleVideoFullscreen, isVideoFullscreen]);
 
   // Lock body scroll when player is open
   useEffect(() => {
@@ -159,6 +199,32 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       document.body.style.overflow = '';
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (controlsHideTimerRef.current) {
+        window.clearTimeout(controlsHideTimerRef.current);
+        controlsHideTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const currentWindow = getCurrentWindow();
+        await currentWindow.setFullscreen(isVideoFullscreen);
+      } catch (err) {
+        console.error('Failed to set fullscreen:', err);
+      }
+    })();
+  }, [isVideoFullscreen, isTauri]);
+
+  useEffect(() => {
+    setIsVideoFullscreen(false);
+  }, [video.bvid]);
 
   const loadComments = useCallback(async (aid: number, cursor: number, append: boolean, bvid?: string) => {
     if (!aid && !bvid) {
@@ -185,6 +251,15 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       // Check if this request is still relevant
       if (latestAidRef.current !== aid && aid !== 0) {
         console.log('[Comments] Stale request, ignoring');
+        return;
+      }
+
+      // Check for API errors
+      if (result.error) {
+        console.error('[Comments] API error:', result.error);
+        setCommentsError(`Comments unavailable: ${result.error}`);
+        setLoadingComments(false);
+        setLoadingMoreComments(false);
         return;
       }
 
@@ -292,68 +367,69 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       }}
     >
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '16px 24px',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        flexShrink: 0,
-      }}>
-        {/* Back button */}
-        <button
-          onClick={onClose}
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            borderRadius: '10px',
-            padding: '10px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            cursor: 'pointer',
-            color: '#fff',
-            fontSize: '14px',
-            fontWeight: 500,
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          Back
-        </button>
-
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Keyboard shortcuts button */}
+      {!isVideoFullscreen && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 24px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          flexShrink: 0,
+        }}>
+          {/* Back button */}
           <button
-            onClick={() => setShowShortcuts(true)}
+            onClick={onClose}
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
               border: 'none',
-              borderRadius: '8px',
-              padding: '8px',
+              borderRadius: '10px',
+              padding: '10px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
               cursor: 'pointer',
-              color: '#888',
-              fontSize: '13px',
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              transition: 'all 0.2s',
             }}
-            title="Keyboard shortcuts (?)"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M18 12h.01M8 16h8" />
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
+            Back
           </button>
 
-          {/* Download button */}
-          <div style={{ position: 'relative' }}>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Keyboard shortcuts button */}
+            <button
+              onClick={() => setShowShortcuts(true)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px',
+                cursor: 'pointer',
+                color: '#888',
+                fontSize: '13px',
+              }}
+              title="Keyboard shortcuts (?)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M18 12h.01M8 16h8" />
+              </svg>
+            </button>
+
+            {/* Download button */}
+            <div style={{ position: 'relative' }}>
             {downloadProgress && downloadProgress.status !== 'error' ? (
               <div
                 style={{
@@ -482,48 +558,50 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
             )}
           </div>
 
-          <button
-            onClick={handleShare}
-            style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '8px',
-              padding: '8px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              cursor: 'pointer',
-              color: '#fff',
-              fontSize: '13px',
-              fontWeight: 500,
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-            }}
-            title="Copy link"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-              <polyline points="16 6 12 2 8 6" />
-              <line x1="12" y1="2" x2="12" y2="15" />
-            </svg>
-            Share
-          </button>
+            <button
+              onClick={handleShare}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '8px',
+                padding: '8px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: 500,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+              }}
+              title="Copy link"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16 6 12 2 8 6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
+              </svg>
+              Share
+            </button>
+
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main content */}
       <div style={{
         flex: 1,
         display: 'flex',
         overflow: 'hidden',
-        gap: '16px',
-        padding: '16px',
-        justifyContent: 'center',
+        gap: isVideoFullscreen ? 0 : '16px',
+        padding: isVideoFullscreen ? 0 : '16px',
+        justifyContent: isVideoFullscreen ? 'stretch' : 'center',
       }}>
         {/* Video section */}
         <div style={{
@@ -531,16 +609,80 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
-          maxWidth: '900px',
+          maxWidth: isVideoFullscreen ? 'none' : '900px',
         }}>
           <div style={{
             width: '100%',
-            aspectRatio: '16/9',
             background: '#000',
-            borderRadius: '12px',
             overflow: 'hidden',
             position: 'relative',
-          }}>
+            borderRadius: isVideoFullscreen ? '0' : '12px',
+            ...(isVideoFullscreen
+              ? { flex: 1, height: '100%' }
+              : { aspectRatio: '16/9' }),
+          }}
+          onMouseEnter={handlePlayerPointerMove}
+          onMouseMove={handlePlayerPointerMove}
+          onMouseLeave={handlePlayerPointerLeave}
+          >
+            {isVideoFullscreen && (
+              <div style={{
+                position: 'absolute',
+                top: '12px',
+                left: '12px',
+                right: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                zIndex: 2,
+                opacity: showPlayerControls ? 1 : 0,
+                pointerEvents: showPlayerControls ? 'auto' : 'none',
+                transition: 'opacity 0.2s ease',
+              }}>
+                <button
+                  onClick={onClose}
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.55)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '10px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    color: '#fff',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7" />
+                  </svg>
+                  Back
+                </button>
+                <button
+                  onClick={toggleVideoFullscreen}
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.55)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '10px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    color: '#fff',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                  </svg>
+                  Exit
+                </button>
+              </div>
+            )}
             <iframe
               src={embedUrl}
               style={{
@@ -552,23 +694,47 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
               allow="autoplay; fullscreen"
               title={video.title}
             />
-            <div style={{
-              position: 'absolute',
-              top: '12px',
-              left: '12px',
-              padding: '4px 10px',
-              borderRadius: '999px',
-              background: 'rgba(0, 0, 0, 0.6)',
-              color: '#ddd',
-              fontSize: '11px',
-              letterSpacing: '0.2px',
-            }}>
-              Embedded player
-            </div>
+            {!isVideoFullscreen && (
+              <button
+                onClick={toggleVideoFullscreen}
+                aria-pressed={isVideoFullscreen}
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  background: 'rgba(0, 0, 0, 0.55)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '999px',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  transition: 'opacity 0.2s ease, background 0.2s ease',
+                  opacity: showPlayerControls ? 1 : 0,
+                  pointerEvents: showPlayerControls ? 'auto' : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(0, 0, 0, 0.75)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)';
+                }}
+                title="Enter fullscreen (F)"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* Up Next Bar - shows when playing from playlist */}
-          {playlistContext && playlistContext.currentIndex < playlistContext.videos.length - 1 && (
+          {!isVideoFullscreen && playlistContext && playlistContext.currentIndex < playlistContext.videos.length - 1 && (
             <div style={{
               marginTop: '12px',
               background: 'rgba(0, 161, 214, 0.1)',
@@ -646,12 +812,13 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
           )}
 
           {/* Video Info - YouTube style */}
-          <div style={{
-            marginTop: '16px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: '12px',
-            padding: '16px',
-          }}>
+          {!isVideoFullscreen && (
+            <div style={{
+              marginTop: '16px',
+              background: 'rgba(255, 255, 255, 0.03)',
+              borderRadius: '12px',
+              padding: '16px',
+            }}>
             {/* Title */}
             <h2 style={{
               margin: '0 0 12px 0',
@@ -849,18 +1016,20 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                 )}
               </div>
             )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar with tabs (Comments / Related) */}
-        <div style={{
-          flex: '0 0 400px',
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'rgba(255, 255, 255, 0.03)',
-          borderRadius: '12px',
-          overflow: 'hidden',
-        }}>
+        {!isVideoFullscreen && (
+          <div style={{
+            flex: '0 0 400px',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'rgba(255, 255, 255, 0.03)',
+            borderRadius: '12px',
+            overflow: 'hidden',
+          }}>
           {/* Tab header */}
           <div style={{
             display: 'flex',
@@ -935,6 +1104,27 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                     <path d="M12 8v4M12 16h.01" />
                   </svg>
                   <p style={{ margin: 0, fontSize: '14px' }}>{commentsError}</p>
+                  <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#888' }}>
+                    aid: {video.aid || 'none'} | bvid: {video.bvid}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setCommentsError(null);
+                      loadComments(video.aid, 0, false, video.bvid);
+                    }}
+                    style={{
+                      marginTop: '12px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      background: '#333',
+                      color: '#888',
+                      border: '1px solid #444',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : comments.length === 0 ? (
                 <div style={{
@@ -946,6 +1136,24 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   </svg>
                   <p style={{ margin: 0, fontSize: '14px' }}>No comments available</p>
+                  <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#555' }}>
+                    aid: {video.aid || 'none'} | bvid: {video.bvid}
+                  </p>
+                  <button
+                    onClick={() => loadComments(video.aid, 0, false, video.bvid)}
+                    style={{
+                      marginTop: '12px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      background: '#333',
+                      color: '#888',
+                      border: '1px solid #444',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1051,7 +1259,8 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
               )}
             </div>
           )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Keyboard Shortcuts Modal */}
@@ -1085,6 +1294,7 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
               <ShortcutRow keys={['?']} description="Toggle shortcuts" />
               <ShortcutRow keys={['D']} description="Download menu" />
               <ShortcutRow keys={['P']} description="Add to playlist" />
+              <ShortcutRow keys={['F']} description="Toggle fullscreen" />
               <ShortcutRow keys={['Esc']} description="Close Player" />
             </div>
             <button

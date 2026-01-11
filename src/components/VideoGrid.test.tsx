@@ -58,11 +58,11 @@ describe('VideoGrid Component', () => {
     expect(skeletons.length).toBeGreaterThan(0)
   })
 
-  it('should show empty state when no videos', () => {
-    render(<VideoGrid videos={[]} loading={false} />)
+  it('should return null when no videos (parent handles empty state)', () => {
+    const { container } = render(<VideoGrid videos={[]} loading={false} />)
 
-    expect(screen.getByText('No videos found')).toBeInTheDocument()
-    expect(screen.getByText('Try a different search or category')).toBeInTheDocument()
+    // VideoGrid returns null when empty, parent handles the empty state
+    expect(container.firstChild).toBeNull()
   })
 
   it('should render video owners', () => {
