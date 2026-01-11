@@ -265,6 +265,7 @@ function App() {
   const [videos, setVideos] = useState<BiliVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debugResult, setDebugResult] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('home');
   const [selectedCategory, setSelectedCategory] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -650,7 +651,58 @@ function App() {
               <path d="M10 8l6 4-6 4V8z" />
             </svg>
             <p style={{ fontSize: '16px', marginBottom: '8px' }}>No videos found</p>
-            <p style={{ fontSize: '14px' }}>Try a different search or category</p>
+            <p style={{ fontSize: '14px', marginBottom: '16px' }}>Try a different search or category</p>
+            {isTauri && (
+              <div style={{ marginTop: '16px' }}>
+                <button
+                  onClick={async () => {
+                    setDebugResult('Testing...');
+                    try {
+                      // Run test fetch and show result
+                      const testFn = (window as unknown as Record<string, () => Promise<unknown>>).testFetch;
+                      if (testFn) {
+                        const result = await testFn();
+                        setDebugResult(JSON.stringify(result, null, 2));
+                      } else {
+                        setDebugResult('Error: testFetch function not found');
+                      }
+                    } catch (err) {
+                      setDebugResult('Error: ' + (err instanceof Error ? err.message : String(err)));
+                    }
+                  }}
+                  style={{
+                    background: '#333',
+                    color: '#888',
+                    border: '1px solid #444',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Test API Connection
+                </button>
+                {debugResult && (
+                  <pre style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    background: '#1a1a1a',
+                    border: '1px solid #333',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: '#0f0',
+                    textAlign: 'left',
+                    maxWidth: '500px',
+                    margin: '16px auto 0',
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}>
+                    {debugResult}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
         )}
       </main>

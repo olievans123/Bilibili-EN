@@ -85,6 +85,7 @@ export interface BiliCommentsResult {
   hasMore?: boolean;
   nextCursor?: number; // Cursor for next page (page offset for pagination)
   requiresLogin?: boolean; // True if more comments require login to load
+  error?: string; // Error message if fetch failed
 }
 
 export interface BiliChannel {
