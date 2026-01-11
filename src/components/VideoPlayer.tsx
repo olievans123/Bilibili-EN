@@ -57,7 +57,6 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
   const [showPlayerControls, setShowPlayerControls] = useState(false);
   const controlsHideTimerRef = useRef<number | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
-  const domFullscreenActiveRef = useRef(false);
 
   // Download state
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
@@ -269,30 +268,6 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
   }, [isVideoFullscreen, handlePlayerPointerMove, isEventInsidePlayer]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const handleFullscreenChange = () => {
-      const isDomFullscreen = Boolean(document.fullscreenElement);
-      const wasDomFullscreen = domFullscreenActiveRef.current;
-      domFullscreenActiveRef.current = isDomFullscreen;
-      if (isDomFullscreen && !isVideoFullscreen) {
-        setIsVideoFullscreen(true);
-      } else if (wasDomFullscreen && !isDomFullscreen && isVideoFullscreen) {
-        setIsVideoFullscreen(false);
-      }
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, [isVideoFullscreen]);
-
-  useEffect(() => {
-    if (!isVideoFullscreen) {
-      void exitDomFullscreen();
-    }
-  }, [isVideoFullscreen, exitDomFullscreen]);
-
-  useEffect(() => {
     if (!isTauri) return;
     void (async () => {
       try {
@@ -304,6 +279,12 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
       }
     })();
   }, [isVideoFullscreen, isTauri]);
+
+  useEffect(() => {
+    if (!isVideoFullscreen) {
+      void exitDomFullscreen();
+    }
+  }, [isVideoFullscreen, exitDomFullscreen]);
 
   useEffect(() => {
     setIsVideoFullscreen(false);
@@ -730,33 +711,12 @@ export function VideoPlayer({ video, onClose, onAddToPlaylist, onChannelSelect, 
                   right: '12px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
+                  justifyContent: 'flex-end',
                   zIndex: 2,
                   opacity: showPlayerControls ? 1 : 0,
                   pointerEvents: showPlayerControls ? 'auto' : 'none',
                   transition: 'opacity 0.2s ease',
                 }}>
-                  <button
-                    onClick={onClose}
-                    style={{
-                      background: 'rgba(0, 0, 0, 0.55)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '10px',
-                      padding: '8px 12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      cursor: 'pointer',
-                      color: '#fff',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M19 12H5M12 19l-7-7 7-7" />
-                    </svg>
-                    Back
-                  </button>
                   <button
                     onClick={toggleVideoFullscreen}
                     aria-label="Exit fullscreen"

@@ -41,7 +41,7 @@ export function Header({ user, onSearch, onLogout, onLoginSuccess, onLogoClick }
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '0',
               flexShrink: 0,
               background: 'none',
               border: 'none',
@@ -49,19 +49,6 @@ export function Header({ user, onSearch, onLogout, onLoginSuccess, onLogoClick }
               padding: 0,
             }}
           >
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #00a1d6 0%, #fb7299 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-                <path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm6 3l6 3.5-6 3.5V9z"/>
-              </svg>
-            </div>
             <span style={{
               fontSize: '20px',
               fontWeight: 700,
