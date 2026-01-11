@@ -1,14 +1,17 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { load, Store } from '@tauri-apps/plugin-store';
-import { setCookies, getCookies, getCurrentUser } from './bilibili';
+import { setCookies, getCookies, getCurrentUser, getBuvidCookies } from './bilibili';
 import type { BiliUser } from '../types/bilibili';
 
 const STORE_KEY = 'bilibili_auth';
 const LOCAL_STORAGE_KEY = 'bilibili_auth';
 const AUTH_BASE = 'https://passport.bilibili.com';
+const AUTH_SOURCE = 'main_web';
+const AUTH_ORIGIN = 'https://passport.bilibili.com';
 const AUTH_PROXY_BASE = (import.meta.env.VITE_PASSPORT_PROXY_BASE as string | undefined)?.replace(/\/$/, '')
   || '/api/passport';
 let store: Store | null = null;
+const AUTH_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
 
 // Check isTauri dynamically (Tauri 2.0 uses __TAURI_INTERNALS__)
 function checkIsTauri(): boolean {
@@ -33,18 +36,24 @@ export interface QRCodeData {
 
 async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = `${AUTH_BASE}${path}`;
+  const headers = new Headers(options.headers || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json, text/plain, */*');
+  }
+  if (!headers.has('Accept-Language')) {
+    headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
+  }
 
   if (checkIsTauri()) {
-    return tauriFetch(url, options);
+    return tauriFetch(url, {
+      ...options,
+      headers: Object.fromEntries(headers.entries()),
+    });
   }
 
   const isDev = import.meta.env.DEV;
   const useProxy = isDev || Boolean(import.meta.env.VITE_PASSPORT_PROXY_BASE);
   const targetUrl = useProxy ? `${AUTH_PROXY_BASE}${path}` : url;
-  const headers = new Headers(options.headers || {});
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json');
-  }
 
   return window.fetch(targetUrl, {
     ...options,
@@ -52,29 +61,65 @@ async function authFetch(path: string, options: RequestInit = {}): Promise<Respo
   });
 }
 
-export async function getLoginQRCode(): Promise<QRCodeData | null> {
+function getAuthHeaders(): Record<string, string> {
+  const cookieParts: string[] = [];
+  const buvid = getBuvidCookies();
+  if (buvid) {
+    cookieParts.push(buvid);
+  }
+  const storedCookies = getCookies();
+  if (storedCookies) {
+    cookieParts.push(storedCookies);
+  }
+
+  return {
+    'User-Agent': AUTH_USER_AGENT,
+    'Referer': `${AUTH_ORIGIN}/`,
+    'Origin': AUTH_ORIGIN,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    ...(cookieParts.length > 0 ? { 'Cookie': cookieParts.join('; ') } : {}),
+  };
+}
+
+async function parseAuthResponse(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Login request failed (HTTP ${response.status})`);
+  }
+  if (text.startsWith('<!') || text.startsWith('<html')) {
+    throw new Error('Login blocked by Bilibili (HTML response)');
+  }
   try {
-    const response = await authFetch('/x/passport-login/web/qrcode/generate', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'https://www.bilibili.com',
-      },
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error('Login response was not valid JSON');
+  }
+}
+
+export async function getLoginQRCode(): Promise<QRCodeData> {
+  try {
+    const response = await authFetch(`/x/passport-login/web/qrcode/generate?source=${AUTH_SOURCE}`, {
+      headers: getAuthHeaders(),
     });
 
-    const data = await response.json();
+    const data = await parseAuthResponse(response);
 
     if (data.code !== 0) {
-      console.error('Failed to get QR code:', data.message);
-      return null;
+      throw new Error(`Failed to get QR code: ${data.message || data.code}`);
     }
 
-    return {
-      url: data.data.url,
-      qrcode_key: data.data.qrcode_key,
-    };
+    const payload = data.data as Record<string, unknown> | undefined;
+    const url = payload?.url as string | undefined;
+    const qrcodeKey = payload?.qrcode_key as string | undefined;
+    if (!url || !qrcodeKey) {
+      throw new Error('Login response missing QR code data');
+    }
+
+    return { url, qrcode_key: qrcodeKey };
   } catch (error) {
     console.error('Error getting QR code:', error);
-    return null;
+    throw error instanceof Error ? error : new Error('Failed to generate QR code');
   }
 }
 
@@ -86,14 +131,11 @@ export interface QRCodeStatus {
 
 export async function checkQRCodeStatus(qrcode_key: string): Promise<QRCodeStatus> {
   try {
-    const response = await authFetch(`/x/passport-login/web/qrcode/poll?qrcode_key=${qrcode_key}`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'https://www.bilibili.com',
-      },
+    const response = await authFetch(`/x/passport-login/web/qrcode/poll?qrcode_key=${qrcode_key}&source=${AUTH_SOURCE}`, {
+      headers: getAuthHeaders(),
     });
 
-    const data = await response.json();
+    const data = await parseAuthResponse(response);
 
     // Status codes:
     // 0 = Success (logged in)
@@ -102,15 +144,16 @@ export async function checkQRCodeStatus(qrcode_key: string): Promise<QRCodeStatu
     // 86101 = QR code not scanned
 
     if (data.code !== 0) {
-      return { code: data.code, message: data.message };
+      return { code: data.code as number, message: String(data.message || 'Login error') };
     }
 
-    const statusCode = data.data.code;
+    const payload = data.data as Record<string, unknown> | undefined;
+    const statusCode = payload?.code as number;
 
     if (statusCode === 0) {
       // Login successful - extract cookies from response
       // The cookies are in the URL parameters of the refresh_token URL
-      const url = data.data.url;
+      const url = payload?.url as string;
       const cookies = extractCookiesFromUrl(url);
 
       if (cookies) {
@@ -127,7 +170,7 @@ export async function checkQRCodeStatus(qrcode_key: string): Promise<QRCodeStatu
     };
   } catch (error) {
     console.error('Error checking QR code status:', error);
-    return { code: -1, message: 'Network error' };
+    return { code: -1, message: error instanceof Error ? error.message : 'Network error' };
   }
 }
 

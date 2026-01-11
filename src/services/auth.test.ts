@@ -50,13 +50,14 @@ describe('Auth Service', () => {
   describe('getLoginQRCode', () => {
     it('should return QR code data on success', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: 0,
           data: {
             url: 'https://passport.bilibili.com/qrcode/h5/login?oauthKey=abc123',
             qrcode_key: 'abc123',
           },
-        }),
+        })),
       })
 
       const result = await getLoginQRCode()
@@ -66,37 +67,35 @@ describe('Auth Service', () => {
       expect(result?.qrcode_key).toBe('abc123')
     })
 
-    it('should return null on API error', async () => {
+    it('should throw on API error', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: -1,
           message: 'Error',
-        }),
+        })),
       })
 
-      const result = await getLoginQRCode()
-
-      expect(result).toBeNull()
+      await expect(getLoginQRCode()).rejects.toThrow('Failed to get QR code')
     })
 
-    it('should return null on network error', async () => {
+    it('should throw on network error', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('Network error')
       )
 
-      const result = await getLoginQRCode()
-
-      expect(result).toBeNull()
+      await expect(getLoginQRCode()).rejects.toThrow('Network error')
     })
   })
 
   describe('checkQRCodeStatus', () => {
     it('should return waiting status when not scanned', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: 0,
           data: { code: 86101 },
-        }),
+        })),
       })
 
       const result = await checkQRCodeStatus('test_key')
@@ -107,10 +106,11 @@ describe('Auth Service', () => {
 
     it('should return scanned status when waiting for confirm', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: 0,
           data: { code: 86090 },
-        }),
+        })),
       })
 
       const result = await checkQRCodeStatus('test_key')
@@ -121,10 +121,11 @@ describe('Auth Service', () => {
 
     it('should return expired status', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: 0,
           data: { code: 86038 },
-        }),
+        })),
       })
 
       const result = await checkQRCodeStatus('test_key')
@@ -137,13 +138,14 @@ describe('Auth Service', () => {
       const loginUrl = 'https://passport.bilibili.com/account/setlogin?DedeUserID=12345&DedeUserID__ckMd5=abc&SESSDATA=session123&bili_jct=csrf'
 
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: 0,
           data: {
             code: 0,
             url: loginUrl,
           },
-        }),
+        })),
       })
 
       const result = await checkQRCodeStatus('test_key')
@@ -170,10 +172,11 @@ describe('Auth Service', () => {
 
     it('should handle API error response', async () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        json: () => Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
           code: -400,
           message: 'Bad Request',
-        }),
+        })),
       })
 
       const result = await checkQRCodeStatus('test_key')
